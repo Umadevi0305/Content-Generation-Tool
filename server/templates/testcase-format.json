@@ -1,0 +1,35 @@
+{
+  "test_cases": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Check for 'os' import",
+      "test_case_enum": "IMPORT_OS",
+      "type": "static_code_check",
+      "fail_if": "The 'os' module is not imported.",
+      "condition": "The solution utilizes the 'os' module.",
+      "must_contain": [
+        "import os"
+      ],
+      "flexibility_note": "Student code must import the 'os' module.",
+      "weight": 5
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "name": "Check for API key retrieval using os.environ",
+      "test_case_enum": "API_KEY_RETRIEVAL",
+      "type": "static_code_check",
+      "fail_if": "The API key is not retrieved using os.environ.",
+      "condition": "The solution retrieves the API key using os.environ.",
+      "must_contain": [
+        "os.environ"
+      ],
+      "flexibility_note": "Student code must use os.environ to retrieve the API key.",
+      "weight": 5
+    }
+  ],
+  "final_verdict_rule": {
+    "logic": "ALL test cases must pass",
+    "on_failure": "FAIL",
+    "on_success": "PASS"
+  }
+}

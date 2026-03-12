@@ -1,0 +1,38 @@
+[
+  {
+    "question_id": "uuid-v4",
+    "ide_session_id": "uuid-v4",
+    "short_text": "Title",
+    "question_key": "Question Key",
+    "question_text": "Full question markdown as escaped string",
+    "content_type": "MARKDOWN",
+    "toughness": "EASY",
+    "language": "ENGLISH",
+    "question_type": "IDE_BASED_CODING",
+    "question_asked_by_companies_info": [],
+    "question_format": "CODING_PRACTICE",
+    "test_cases": [
+      {
+        "display_text": "test case name",
+        "weightage": 5.0,
+        "test_case_enum": "TEST_CASE_ENUM"
+      }
+    ],
+    "multimedia": [],
+    "solutions": [
+      {
+        "order": 1,
+        "title": {
+          "content": "Solution Title",
+          "content_type": "MARKDOWN"
+        },
+        "description": {
+          "content": "Solution Description",
+          "content_type": "MARKDOWN"
+        },
+        "ide_session_id": "uuid-v4"
+      }
+    ],
+    "hints": []
+  }
+]
