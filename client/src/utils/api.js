@@ -1,10 +1,10 @@
 const API_BASE = '/api';
 
-export async function generateQuestion(solutionCode) {
+export async function generateQuestion({ solutionCode, prefilledCode, customRules }) {
   const res = await fetch(`${API_BASE}/question/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ solutionCode }),
+    body: JSON.stringify({ solutionCode, prefilledCode, customRules }),
   });
   if (!res.ok) {
     const err = await res.json();

@@ -5,6 +5,7 @@ import TestCaseGenerator from './pages/TestCaseGenerator';
 import JsonGenerator from './pages/JsonGenerator';
 import TestCaseEvaluator from './pages/TestCaseEvaluator';
 import ZipGenerator from './pages/ZipGenerator';
+import SessionDisplayIdGenerator from './pages/SessionDisplayIdGenerator';
 import { AppStateProvider } from './context/AppStateContext';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/evaluator" element={<TestCaseEvaluator />} />
           <Route path="/json" element={<JsonGenerator />} />
           <Route path="/zip" element={<ZipGenerator />} />
+          <Route path="/session-ids" element={<SessionDisplayIdGenerator />} />
         </Routes>
       </Layout>
     </AppStateProvider>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Sparkles, Trash2, Copy, Check, Download, Pencil, X, Save } from 'lucide-react';
+import { Loader2, Sparkles, Trash2, Copy, Check, Download, Pencil, X, Save, Import } from 'lucide-react';
 import toast from 'react-hot-toast';
 import CodeEditor from '../components/CodeEditor';
 import CopyButton from '../components/CopyButton';
@@ -7,7 +7,7 @@ import { generateTestCases } from '../utils/api';
 import { useAppState } from '../context/AppStateContext';
 
 export default function TestCaseGenerator() {
-  const { testCaseState, setTestCaseState } = useAppState();
+  const { testCaseState, setTestCaseState, questionState } = useAppState();
   const { solutionCode, prefilledCode, questionMarkdown, numberOfTestCases, customRules, testCases, activeTab } = testCaseState;
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -21,6 +21,27 @@ export default function TestCaseGenerator() {
   const setCustomRules = (v) => update({ customRules: v });
   const setTestCases = (v) => update({ testCases: v });
   const setActiveTab = (v) => update({ activeTab: v });
+
+  const handleImportFromQuestionGenerator = () => {
+    const imported = [];
+    if (questionState.solutionCode?.trim()) {
+      setSolutionCode(questionState.solutionCode);
+      imported.push('Solution Code');
+    }
+    if (questionState.prefilledCode?.trim()) {
+      setPrefilledCode(questionState.prefilledCode);
+      imported.push('Prefilled Code');
+    }
+    if (questionState.markdown?.trim()) {
+      setQuestionMarkdown(questionState.markdown);
+      imported.push('Question Markdown');
+    }
+    if (imported.length > 0) {
+      toast.success(`Imported: ${imported.join(', ')}`);
+    } else {
+      toast.error('Nothing to import — Question Generator fields are empty');
+    }
+  };
 
   const handleGenerate = async () => {
     if (!solutionCode.trim()) {
@@ -111,20 +132,29 @@ export default function TestCaseGenerator() {
 
       {/* Input tabs */}
       <div className="bg-dark-800 border border-dark-600 rounded-lg">
-        <div className="flex border-b border-dark-600">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === tab.key
-                  ? 'text-accent-blue border-b-2 border-accent-blue'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex items-center justify-between border-b border-dark-600">
+          <div className="flex">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+                  activeTab === tab.key
+                    ? 'text-accent-blue border-b-2 border-accent-blue'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleImportFromQuestionGenerator}
+            className="flex items-center gap-1.5 mr-3 px-3 py-1.5 border border-dark-500 hover:border-gray-400 rounded-lg text-xs font-medium text-gray-300 hover:text-white transition-colors"
+          >
+            <Import size={13} />
+            Import from Question Generator
+          </button>
         </div>
         <div className="p-4">
           {activeTab === 'solution' && (

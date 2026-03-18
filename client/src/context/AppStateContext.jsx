@@ -6,6 +6,8 @@ export function AppStateProvider({ children }) {
   // QuestionGenerator state
   const [questionState, setQuestionState] = useState({
     solutionCode: '',
+    prefilledCode: '',
+    customRules: '',
     markdown: '',
     viewMode: 'preview',
   });
@@ -48,6 +50,22 @@ export function AppStateProvider({ children }) {
     evaluationResult: null,
   });
 
+  // Response Processing state (JSON Generator sub-tab 3)
+  const [responseProcessingState, setResponseProcessingState] = useState({
+    responseFile: null,
+    extractedQuestions: [],
+    perQuestionTestCases: {},  // keyed by question_id → { pasted: string }
+    updatedTestCases: {},      // keyed by question_id → final merged test cases
+  });
+
+  // SessionDisplayIdGenerator state
+  const [sessionIdState, setSessionIdState] = useState({
+    count: 1,
+    prefix: 'GENAI',
+    randomLength: 5,
+    ids: [],
+  });
+
   // ZipGenerator state
   const [zipState, setZipState] = useState({
     prefillName: 'PrefillCode',
@@ -66,6 +84,8 @@ export function AppStateProvider({ children }) {
         testCaseState, setTestCaseState,
         jsonState, setJsonState,
         evaluatorState, setEvaluatorState,
+        responseProcessingState, setResponseProcessingState,
+        sessionIdState, setSessionIdState,
         zipState, setZipState,
       }}
     >

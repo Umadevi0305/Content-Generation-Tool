@@ -9,12 +9,15 @@ import { useAppState } from '../context/AppStateContext';
 
 export default function QuestionGenerator() {
   const { questionState, setQuestionState } = useAppState();
-  const { solutionCode, markdown, viewMode } = questionState;
+  const { solutionCode, prefilledCode, customRules, markdown, viewMode } = questionState;
   const [loading, setLoading] = useState(false);
 
-  const setSolutionCode = (v) => setQuestionState((s) => ({ ...s, solutionCode: v }));
-  const setMarkdown = (v) => setQuestionState((s) => ({ ...s, markdown: v }));
-  const setViewMode = (v) => setQuestionState((s) => ({ ...s, viewMode: v }));
+  const update = (patch) => setQuestionState((s) => ({ ...s, ...patch }));
+  const setSolutionCode = (v) => update({ solutionCode: v });
+  const setPrefilledCode = (v) => update({ prefilledCode: v });
+  const setCustomRules = (v) => update({ customRules: v });
+  const setMarkdown = (v) => update({ markdown: v });
+  const setViewMode = (v) => update({ viewMode: v });
 
   const handleGenerate = async () => {
     if (!solutionCode.trim()) {
@@ -23,7 +26,7 @@ export default function QuestionGenerator() {
     }
     setLoading(true);
     try {
-      const data = await generateQuestion(solutionCode);
+      const data = await generateQuestion({ solutionCode, prefilledCode, customRules });
       setMarkdown(data.markdown);
       toast.success('Question generated!');
     } catch (err) {
@@ -62,15 +65,32 @@ export default function QuestionGenerator() {
       </div>
 
       <div className="flex-1 grid grid-cols-2 gap-4 min-h-0">
-        {/* Left: Code Editor */}
-        <div className="flex flex-col min-h-0">
+        {/* Left: Inputs */}
+        <div className="flex flex-col min-h-0 gap-3 overflow-auto">
           <CodeEditor
             value={solutionCode}
             onChange={setSolutionCode}
             placeholder="Paste your Python/JS solution code here..."
             label="Solution Code"
-            height="h-full"
+            height="h-64"
           />
+          <CodeEditor
+            value={prefilledCode}
+            onChange={setPrefilledCode}
+            placeholder="Paste prefilled/starter code here (optional)..."
+            label="Prefilled Code"
+            height="h-48"
+          />
+          <div>
+            <label className="text-xs font-medium text-gray-400 block mb-1">Custom Rules</label>
+            <textarea
+              value={customRules}
+              onChange={(e) => setCustomRules(e.target.value)}
+              placeholder="Add any custom rules for question generation (optional)..."
+              rows={4}
+              className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono resize-none focus:border-accent-blue transition-colors placeholder:text-gray-600"
+            />
+          </div>
         </div>
 
         {/* Right: Generated Output */}

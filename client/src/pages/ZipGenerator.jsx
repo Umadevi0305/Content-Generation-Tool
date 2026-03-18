@@ -1,4 +1,4 @@
-import { Archive, Download } from 'lucide-react';
+import { Archive, Download, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -55,7 +55,16 @@ function ZipSection({ title, description, zipName, setZipName, showNameInput, ap
         />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
+        <a
+          href="https://nkb-backend-ccbp-beta.earlywave.in/admin/nkb_load_data/uploadfile/add/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-5 py-2.5 border border-dark-500 hover:border-gray-400 rounded-lg text-sm font-medium text-gray-300 hover:text-white transition-colors"
+        >
+          Boilerplate Code S3 URL
+          <ExternalLink size={14} />
+        </a>
         <button
           onClick={onGenerate}
           className="flex items-center gap-2 px-5 py-2.5 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium text-white transition-colors"

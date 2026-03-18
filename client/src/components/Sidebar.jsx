@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { FileText, TestTube, ShieldCheck, Braces, Archive } from 'lucide-react';
+import { FileText, TestTube, ShieldCheck, Braces, Archive, Hash } from 'lucide-react';
 
 const navItems = [
   { to: '/question', icon: FileText, label: 'Question Generator' },
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/evaluator', icon: ShieldCheck, label: 'Test Case Evaluator' },
   { to: '/json', icon: Braces, label: 'JSON Generator' },
   { to: '/zip', icon: Archive, label: 'ZIP Generator' },
+  { to: '/session-ids', icon: Hash, label: 'Session Display ID Generator' },
 ];
 
 export default function Sidebar() {

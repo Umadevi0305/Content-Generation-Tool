@@ -7,6 +7,10 @@
     "client": "cd client && npm run dev",
     "install:all": "cd server && npm install && cd ../client && npm install"
   },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "uuid": "^11.1.0"
+  },
   "devDependencies": {
     "concurrently": "^8.2.2"
   }
