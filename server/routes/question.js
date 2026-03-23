@@ -20,7 +20,7 @@ router.post('/generate', async (req, res) => {
       return res.status(400).json({ error: 'Solution code is required' });
     }
 
-    const systemPrompt = `You are an expert educational content creator for NxtWave's CCBP coding curriculum. Your job is to analyze solution code and generate a question markdown document that guides someone to write this code.
+    const systemPrompt = `You are an expert educational content creator for NxtWave's CCBP coding curriculum. You are generating a question markdown for ONE coding question only. Your job is to analyze the provided solution code and generate a question markdown document that guides someone to write this code. Generate the question based ONLY on the solution code and prefilled code provided below. Do not assume or reference any other code, questions, or context.
 
 Use the EXACT HTML/markdown structure provided in the template below. Do not deviate from this format.
 
@@ -104,7 +104,7 @@ Intro Paragraph Tone:
 - Follow a logical order matching code flow: imports → initialization/setup → wiring → invocation
 - Each requirement should be a standalone testable statement`;
 
-    let userPrompt = `Analyze this solution code and generate a question markdown document:\n\n\`\`\`\n${solutionCode}\n\`\`\``;
+    let userPrompt = `You are generating a question for ONE coding question only. Analyze ONLY the solution code below and generate a question markdown document. Do not reference any other questions or code.\n\nSolution Code:\n\`\`\`\n${solutionCode}\n\`\`\``;
 
     if (prefilledCode && prefilledCode.trim()) {
       userPrompt += `\n\nPREFILLED CODE (starter code given to the student):\n\`\`\`\n${prefilledCode}\n\`\`\`\n\nIMPORTANT: The prefilled code above is already provided to the student. Do NOT include any instructions, completion steps, or notes for functionality that is already implemented in the prefilled code. Only describe the parts the student needs to write themselves (i.e., what exists in the solution code but NOT in the prefilled code).`;

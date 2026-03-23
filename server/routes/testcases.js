@@ -66,12 +66,7 @@ ${customRules}`;
 
     const result = await generateWithClaude(systemPrompt, userPrompt);
 
-    // Try to parse JSON from the response (handle possible markdown wrapping)
-    let jsonStr = result.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-
+    const jsonStr = extractJson(result);
     const testCases = JSON.parse(jsonStr);
     res.json({ testCases });
   } catch (error) {
@@ -80,18 +75,8 @@ ${customRules}`;
   }
 });
 
-router.post('/evaluate', async (req, res) => {
-  try {
-    const { questionText, solutionCode, studentCode, testCases } = req.body;
-
-    if (!studentCode || !studentCode.trim()) {
-      return res.status(400).json({ error: 'Student code is required' });
-    }
-    if (!testCases || !Array.isArray(testCases) || testCases.length === 0) {
-      return res.status(400).json({ error: 'Test cases are required' });
-    }
-
-    const evaluationPrompt = `**META ROLE:**
+function buildEvaluationPrompt(questionText, solutionCode, studentCode, testCases) {
+  return `**META ROLE:**
 You are an experienced IDE-coding instructor known for your insightful and constructive feedback, helping students improve their programming skills and understand how to write correct, efficient, and reliable code solutions.
 
 **EVALUATION OBJECTIVE:**
@@ -278,30 +263,254 @@ The test_case_id field in every evaluation MUST be copied CHARACTER-BY-CHARACTER
 - If dependencies fail, still evaluate the dependent test and mark it INCORRECT
 
 Please ensure that your response is strictly in a valid RFC8259 compliant JSON format. Do not include any other fields or text outside the JSON. Don't add Notes at the end, only respond with valid json.`;
+}
 
+function extractJson(raw) {
+  let str = raw.trim();
+
+  // Strip markdown code fences
+  if (str.startsWith('```')) {
+    str = str.replace(/^```(?:json)?\n?/, '').replace(/\n?```[\s\S]*$/, '');
+  }
+
+  // Strip any trailing text after the top-level JSON object
+  const firstBrace = str.indexOf('{');
+  if (firstBrace === -1) return str;
+  str = str.slice(firstBrace);
+
+  // Attempt 1: try direct parse
+  try {
+    JSON.parse(str);
+    return str;
+  } catch {
+    // Continue to repair
+  }
+
+  // Attempt 2: find the last } and trim trailing junk
+  const lastBrace = str.lastIndexOf('}');
+  if (lastBrace !== -1) {
+    const trimmed = str.slice(0, lastBrace + 1);
+    try {
+      JSON.parse(trimmed);
+      return trimmed;
+    } catch {
+      // Continue to repair
+    }
+  }
+
+  // Attempt 3: repair raw control chars inside JSON strings char-by-char
+  const chars = str;
+  const out = [];
+  let inString = false, escape = false;
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+
+    if (escape) {
+      escape = false;
+      out.push(ch);
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escape = true;
+      out.push(ch);
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      out.push(ch);
+      continue;
+    }
+
+    if (inString) {
+      if (ch === '\n') { out.push('\\', 'n'); continue; }
+      if (ch === '\r') { out.push('\\', 'r'); continue; }
+      if (ch === '\t') { out.push('\\', 't'); continue; }
+      out.push(ch);
+      continue;
+    }
+
+    out.push(ch);
+  }
+
+  let repaired = out.join('');
+  // Trim to last }
+  const lastB = repaired.lastIndexOf('}');
+  if (lastB !== -1) repaired = repaired.slice(0, lastB + 1);
+
+  // If still broken (e.g. truncated response), try closing open structures
+  try {
+    JSON.parse(repaired);
+    return repaired;
+  } catch {
+    // Attempt 4: the response was likely truncated by token limit.
+    // Try to close any open arrays/objects.
+    let fixed = repaired;
+    // Close any unterminated string
+    const quoteCount = (fixed.match(/(?<!\\)"/g) || []).length;
+    if (quoteCount % 2 !== 0) fixed += '"';
+    // Count open brackets/braces
+    let openBraces = 0, openBrackets = 0;
+    let inStr = false, esc = false;
+    for (const c of fixed) {
+      if (esc) { esc = false; continue; }
+      if (c === '\\' && inStr) { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') openBraces++;
+      else if (c === '}') openBraces--;
+      else if (c === '[') openBrackets++;
+      else if (c === ']') openBrackets--;
+    }
+    fixed += ']'.repeat(Math.max(0, openBrackets));
+    fixed += '}'.repeat(Math.max(0, openBraces));
+
+    try {
+      JSON.parse(fixed);
+      return fixed;
+    } catch {
+      // Return the best effort — caller will get the parse error
+      return repaired;
+    }
+  }
+}
+
+function parseEvaluationResult(rawText) {
+  const jsonStr = extractJson(rawText);
+  const evaluationResult = JSON.parse(jsonStr);
+  if (Array.isArray(evaluationResult.test_case_details)) {
+    const details = evaluationResult.test_case_details;
+    evaluationResult.total_test_cases_count = details.length;
+    evaluationResult.passed_test_cases_count = details.filter(
+      (tc) => tc.evaluation_result === 'CORRECT'
+    ).length;
+  }
+  return evaluationResult;
+}
+
+router.post('/evaluate', async (req, res) => {
+  try {
+    const { questionText, solutionCode, studentCode, testCases } = req.body;
+
+    if (!studentCode || !studentCode.trim()) {
+      return res.status(400).json({ error: 'Student code is required' });
+    }
+    if (!testCases || !Array.isArray(testCases) || testCases.length === 0) {
+      return res.status(400).json({ error: 'Test cases are required' });
+    }
+
+    const evaluationPrompt = buildEvaluationPrompt(questionText, solutionCode, studentCode, testCases);
     const result = await generateWithClaudeUserOnly(evaluationPrompt);
 
-    // Strip markdown code fences if present
-    let jsonStr = result.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-
-    const evaluationResult = JSON.parse(jsonStr);
-
-    // Recompute counts from actual details — don't trust the LLM's counts
-    if (Array.isArray(evaluationResult.test_case_details)) {
-      const details = evaluationResult.test_case_details;
-      evaluationResult.total_test_cases_count = details.length;
-      evaluationResult.passed_test_cases_count = details.filter(
-        (tc) => tc.evaluation_result === 'CORRECT'
-      ).length;
-    }
-
+    const evaluationResult = parseEvaluationResult(result);
     res.json(evaluationResult);
   } catch (error) {
     console.error('Test case evaluation error:', error);
     res.status(500).json({ error: error.message || 'Failed to evaluate test cases' });
+  }
+});
+
+router.post('/auto-evaluate', async (req, res) => {
+  try {
+    const { questionText, solutionCode, prefilledCode, testCases, numberOfVariants } = req.body;
+
+    if (!solutionCode || !solutionCode.trim()) {
+      return res.status(400).json({ error: 'Solution code is required' });
+    }
+    if (!testCases || !Array.isArray(testCases) || testCases.length === 0) {
+      return res.status(400).json({ error: 'Test cases are required' });
+    }
+
+    const numVariants = Math.min(Math.max(numberOfVariants || 5, 1), 10);
+
+    // Call 1 — Generate student variants
+    const variantPrompt = `You are simulating different students attempting this coding question.
+
+Question: ${questionText || '(not provided)'}
+Original Solution: \`\`\`
+${solutionCode}
+\`\`\`
+Prefilled Code (base code given to students): \`\`\`
+${prefilledCode || '(none)'}
+\`\`\`
+
+Generate ${numVariants} different student submission variants. Each variant should be a complete Python file that a student might submit.
+
+Rules:
+- Use the prefilled code as the base — students start from this
+- Each variant should simulate a different level of completion or different mistakes
+- Include a mix: some correct, some partially correct, some with errors
+- Pick from these variant types, ensuring diversity:
+  * Complete Correct — Student writes everything correctly but with different variable names, formatting, or style
+  * Partial Completion — Student completes most steps but misses 1-2 things
+  * Wrong Approach — Student uses a different but incorrect approach
+  * Prefilled Only — Student submits the prefilled code as-is without completing anything
+  * Almost There — Student does everything right except one critical detail
+  * Syntax Error — Student has a typo or syntax issue
+  * Extra Code — Student adds unnecessary code that doesn't break functionality
+- For each variant provide: variant_type, description (1 line explaining what this student did differently), and the full code
+
+Respond ONLY in valid JSON (no markdown fences):
+{
+  "variants": [
+    {
+      "variant_type": "Partial Completion",
+      "description": "Student completed most steps but forgot to import InMemorySaver",
+      "code": "...full python code..."
+    }
+  ]
+}`;
+
+    const variantResult = await generateWithClaude(
+      'You are an expert coding instructor who can simulate realistic student submissions at various skill levels. Always respond with valid JSON only.',
+      variantPrompt
+    );
+
+    const variantJson = extractJson(variantResult);
+    const { variants: rawVariants } = JSON.parse(variantJson);
+
+    if (!Array.isArray(rawVariants) || rawVariants.length === 0) {
+      return res.status(500).json({ error: 'Failed to generate student variants' });
+    }
+
+    // Call 2 — Evaluate each variant in parallel
+    const evaluationPromises = rawVariants.map(async (variant, idx) => {
+      try {
+        const prompt = buildEvaluationPrompt(questionText, solutionCode, variant.code, testCases);
+        const evalResult = await generateWithClaudeUserOnly(prompt);
+        const evaluation = parseEvaluationResult(evalResult);
+
+        return {
+          variantNumber: idx + 1,
+          variantType: variant.variant_type,
+          description: variant.description,
+          studentCode: variant.code,
+          evaluation,
+        };
+      } catch (evalErr) {
+        return {
+          variantNumber: idx + 1,
+          variantType: variant.variant_type,
+          description: variant.description,
+          studentCode: variant.code,
+          evaluation: {
+            passed_test_cases_count: 0,
+            total_test_cases_count: testCases.length,
+            test_case_details: [],
+            error: evalErr.message,
+          },
+        };
+      }
+    });
+
+    const variants = await Promise.all(evaluationPromises);
+
+    res.json({ variants });
+  } catch (error) {
+    console.error('Auto-evaluate error:', error);
+    res.status(500).json({ error: error.message || 'Failed to auto-evaluate' });
   }
 });
 

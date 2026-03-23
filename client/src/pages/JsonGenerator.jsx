@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Download, Braces, ChevronDown, ChevronRight, Import, ExternalLink, Copy, Upload } from 'lucide-react';
+import { Download, Braces, ChevronDown, ChevronRight, Import, ExternalLink, Copy, Upload, FolderInput } from 'lucide-react';
 import toast from 'react-hot-toast';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -25,7 +25,7 @@ const SUB_TABS = [
 ];
 
 export default function JsonGenerator() {
-  const { jsonState, setJsonState, questionState, testCaseState, responseProcessingState, setResponseProcessingState } = useAppState();
+  const { jsonState, setJsonState, activeProject, responseProcessingState, setResponseProcessingState } = useAppState();
   const { numberOfQuestions, questions, generatedJson } = jsonState;
   const [activeSubTab, setActiveSubTab] = useState('generate');
   const [expandedSections, setExpandedSections] = useState({ 0: true });
@@ -75,22 +75,41 @@ export default function JsonGenerator() {
     setExpandedSections((s) => ({ ...s, [idx]: !s[idx] }));
   };
 
-  const handleImportMarkdown = (idx) => {
-    if (!questionState.markdown) {
-      toast.error('No data available from Question Generator');
+  // Import all from project
+  const handleImportAllFromProject = () => {
+    if (!activeProject) {
+      toast.error('No active project');
       return;
     }
-    updateQuestion(idx, { questionMarkdown: questionState.markdown });
-    toast.success('Imported question markdown');
-  };
 
-  const handleImportTestCases = (idx) => {
-    if (!testCaseState.testCases) {
-      toast.error('No data available from Test Case Generator');
-      return;
-    }
-    updateQuestion(idx, { testCasesJson: JSON.stringify(testCaseState.testCases, null, 2) });
-    toast.success('Imported test cases');
+    const projectQuestions = activeProject.questions;
+    const count = projectQuestions.length;
+
+    const newQuestions = projectQuestions.map((pq) => ({
+      questionMarkdown: pq.questionMd || '',
+      testCasesJson: pq.testCasesJson || '',
+      title: '',
+      questionKey: '',
+      toughness: 'EASY',
+      language: 'ENGLISH',
+      solutionTitle: '',
+      solutionDescription: '',
+    }));
+
+    setJsonState((s) => ({
+      ...s,
+      numberOfQuestions: count,
+      questions: newQuestions,
+    }));
+    setNumInput(count);
+
+    const expandAll = {};
+    for (let i = 0; i < count; i++) expandAll[i] = true;
+    setExpandedSections(expandAll);
+
+    const importedMd = projectQuestions.filter((q) => q.questionMd?.trim()).length;
+    const importedTc = projectQuestions.filter((q) => q.testCasesJson?.trim()).length;
+    toast.success(`Imported ${count} questions (${importedMd} MDs, ${importedTc} test cases)`);
   };
 
   const getTestCaseCount = (tcJson) => {
@@ -237,14 +256,15 @@ export default function JsonGenerator() {
     });
   };
 
-  const handleImportTestCasesForQuestion = (questionId) => {
-    if (!testCaseState.testCases) {
-      toast.error('No data available from Test Case Generator');
+  const handleImportTestCasesForQuestion = (questionId, questionIndex) => {
+    // Try to import from project question at matching index
+    if (activeProject && activeProject.questions[questionIndex]?.testCasesJson?.trim()) {
+      const text = activeProject.questions[questionIndex].testCasesJson;
+      handlePerQuestionTestCaseChange(questionId, text);
+      toast.success(`Imported test cases from project Q${questionIndex + 1}`);
       return;
     }
-    const text = JSON.stringify(testCaseState.testCases, null, 2);
-    handlePerQuestionTestCaseChange(questionId, text);
-    toast.success('Imported test cases from Page 2');
+    toast.error('No test cases available for this question in the project');
   };
 
   const handleResponseUpload = async (e) => {
@@ -352,9 +372,9 @@ export default function JsonGenerator() {
     <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
       {/* Left: Inputs */}
       <div className="space-y-4 overflow-auto">
-        {/* Number of Questions */}
+        {/* Number of Questions + Import All */}
         <div className="bg-dark-800 border border-dark-600 rounded-lg p-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <label className="text-sm font-medium text-gray-300 whitespace-nowrap">How many questions?</label>
             <input
               type="number"
@@ -369,6 +389,13 @@ export default function JsonGenerator() {
               className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium text-white transition-colors"
             >
               Set
+            </button>
+            <button
+              onClick={handleImportAllFromProject}
+              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium text-white transition-colors ml-auto"
+            >
+              <FolderInput size={14} />
+              Import All from Project
             </button>
           </div>
         </div>
@@ -413,16 +440,7 @@ export default function JsonGenerator() {
               {isExpanded && (
                 <div className="px-4 pb-4 space-y-3 border-t border-dark-600 pt-3">
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-gray-400">Question Markdown</label>
-                      <button
-                        onClick={() => handleImportMarkdown(idx)}
-                        className="flex items-center gap-1 px-2 py-1 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded text-xs text-gray-300 transition-colors"
-                      >
-                        <Import size={10} />
-                        Import from Question Generator
-                      </button>
-                    </div>
+                    <label className="text-xs font-medium text-gray-400">Question Markdown</label>
                     <CodeEditor
                       value={q.questionMarkdown}
                       onChange={(v) => updateQuestion(idx, { questionMarkdown: v })}
@@ -432,16 +450,7 @@ export default function JsonGenerator() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-gray-400">Test Cases JSON</label>
-                      <button
-                        onClick={() => handleImportTestCases(idx)}
-                        className="flex items-center gap-1 px-2 py-1 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded text-xs text-gray-300 transition-colors"
-                      >
-                        <Import size={10} />
-                        Import from Test Case Generator
-                      </button>
-                    </div>
+                    <label className="text-xs font-medium text-gray-400">Test Cases JSON</label>
                     <CodeEditor
                       value={q.testCasesJson}
                       onChange={(v) => updateQuestion(idx, { testCasesJson: v })}
@@ -714,11 +723,11 @@ export default function JsonGenerator() {
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-medium text-gray-400">Paste test cases for Question {i + 1}</label>
                       <button
-                        onClick={() => handleImportTestCasesForQuestion(eq.question_id)}
+                        onClick={() => handleImportTestCasesForQuestion(eq.question_id, i)}
                         className="flex items-center gap-1 px-2 py-1 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded text-xs text-gray-300 transition-colors"
                       >
                         <Import size={10} />
-                        Import from Test Case Generator
+                        Import from Project Q{i + 1}
                       </button>
                     </div>
                     <CodeEditor

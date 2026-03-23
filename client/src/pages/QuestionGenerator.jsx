@@ -4,30 +4,45 @@ import toast from 'react-hot-toast';
 import CodeEditor from '../components/CodeEditor';
 import MarkdownPreview from '../components/MarkdownPreview';
 import CopyButton from '../components/CopyButton';
+import QuestionSelector from '../components/QuestionSelector';
 import { generateQuestion } from '../utils/api';
 import { useAppState } from '../context/AppStateContext';
 
 export default function QuestionGenerator() {
-  const { questionState, setQuestionState } = useAppState();
-  const { solutionCode, prefilledCode, customRules, markdown, viewMode } = questionState;
+  const { activeProject, activeQuestion, updateQuestion } = useAppState();
   const [loading, setLoading] = useState(false);
 
-  const update = (patch) => setQuestionState((s) => ({ ...s, ...patch }));
-  const setSolutionCode = (v) => update({ solutionCode: v });
-  const setPrefilledCode = (v) => update({ prefilledCode: v });
-  const setCustomRules = (v) => update({ customRules: v });
-  const setMarkdown = (v) => update({ markdown: v });
-  const setViewMode = (v) => update({ viewMode: v });
+  if (!activeProject || !activeQuestion) return null;
+
+  const { solutionCode, prefilledCode, questionCustomRules: customRules, questionMd: markdown, questionViewMode: viewMode } = activeQuestion;
+
+  // Capture the question index at call time so the result is written to the
+  // correct question even if the user switches tabs while generation is in-flight.
+  const set = (patch) => {
+    const idx = activeProject.activeQuestionIndex;
+    updateQuestion(idx, patch);
+  };
 
   const handleGenerate = async () => {
     if (!solutionCode.trim()) {
       toast.error('Please paste your solution code');
       return;
     }
+    // Capture index AND data at the moment the user clicks Generate
+    const capturedIdx = activeProject.activeQuestionIndex;
+    const capturedSolutionCode = solutionCode;
+    const capturedPrefilledCode = prefilledCode;
+    const capturedCustomRules = customRules;
+
     setLoading(true);
     try {
-      const data = await generateQuestion({ solutionCode, prefilledCode, customRules });
-      setMarkdown(data.markdown);
+      const data = await generateQuestion({
+        solutionCode: capturedSolutionCode,
+        prefilledCode: capturedPrefilledCode,
+        customRules: capturedCustomRules,
+      });
+      // Write result to the specific question that was active when Generate was clicked
+      updateQuestion(capturedIdx, { questionMd: data.markdown });
       toast.success('Question generated!');
     } catch (err) {
       toast.error(err.message);
@@ -37,11 +52,12 @@ export default function QuestionGenerator() {
   };
 
   const handleDownload = () => {
+    const idx = activeProject.activeQuestionIndex + 1;
     const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'question.md';
+    a.download = `question_${idx}.md`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Downloaded!');
@@ -64,19 +80,22 @@ export default function QuestionGenerator() {
         </button>
       </div>
 
+      {/* Question Selector */}
+      <QuestionSelector />
+
       <div className="flex-1 grid grid-cols-2 gap-4 min-h-0">
         {/* Left: Inputs */}
         <div className="flex flex-col min-h-0 gap-3 overflow-auto">
           <CodeEditor
             value={solutionCode}
-            onChange={setSolutionCode}
+            onChange={(v) => set({ solutionCode: v })}
             placeholder="Paste your Python/JS solution code here..."
             label="Solution Code"
             height="h-64"
           />
           <CodeEditor
             value={prefilledCode}
-            onChange={setPrefilledCode}
+            onChange={(v) => set({ prefilledCode: v })}
             placeholder="Paste prefilled/starter code here (optional)..."
             label="Prefilled Code"
             height="h-48"
@@ -85,7 +104,7 @@ export default function QuestionGenerator() {
             <label className="text-xs font-medium text-gray-400 block mb-1">Custom Rules</label>
             <textarea
               value={customRules}
-              onChange={(e) => setCustomRules(e.target.value)}
+              onChange={(e) => set({ questionCustomRules: e.target.value })}
               placeholder="Add any custom rules for question generation (optional)..."
               rows={4}
               className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono resize-none focus:border-accent-blue transition-colors placeholder:text-gray-600"
@@ -98,7 +117,7 @@ export default function QuestionGenerator() {
           <div className="flex items-center justify-between p-3 border-b border-dark-600">
             <div className="flex gap-1">
               <button
-                onClick={() => setViewMode('preview')}
+                onClick={() => set({ questionViewMode: 'preview' })}
                 className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                   viewMode === 'preview' ? 'bg-accent-blue/20 text-accent-blue' : 'text-gray-400 hover:text-gray-200'
                 }`}
@@ -106,7 +125,7 @@ export default function QuestionGenerator() {
                 Preview
               </button>
               <button
-                onClick={() => setViewMode('edit')}
+                onClick={() => set({ questionViewMode: 'edit' })}
                 className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                   viewMode === 'edit' ? 'bg-accent-blue/20 text-accent-blue' : 'text-gray-400 hover:text-gray-200'
                 }`}
@@ -140,7 +159,7 @@ export default function QuestionGenerator() {
             {markdown && viewMode === 'edit' && (
               <textarea
                 value={markdown}
-                onChange={(e) => setMarkdown(e.target.value)}
+                onChange={(e) => set({ questionMd: e.target.value })}
                 className="w-full h-full bg-transparent font-mono text-sm text-gray-300 resize-none outline-none"
               />
             )}

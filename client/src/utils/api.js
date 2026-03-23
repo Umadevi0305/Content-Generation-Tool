@@ -52,6 +52,19 @@ export async function evaluateTestCases({ questionText, solutionCode, studentCod
   return res.json();
 }
 
+export async function autoEvaluateTestCases({ questionText, solutionCode, prefilledCode, testCases, numberOfVariants }) {
+  const res = await fetch(`${API_BASE}/testcases/auto-evaluate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questionText, solutionCode, prefilledCode, testCases, numberOfVariants }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to auto-evaluate');
+  }
+  return res.json();
+}
+
 export async function generateZip(data) {
   const res = await fetch(`${API_BASE}/zip/generate`, {
     method: 'POST',

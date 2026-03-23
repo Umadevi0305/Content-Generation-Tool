@@ -1,46 +1,47 @@
 import { useState } from 'react';
-import { Loader2, Sparkles, Trash2, Copy, Check, Download, Pencil, X, Save, Import } from 'lucide-react';
+import { Loader2, Sparkles, Trash2, Download, Pencil, X, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import CodeEditor from '../components/CodeEditor';
 import CopyButton from '../components/CopyButton';
+import QuestionSelector from '../components/QuestionSelector';
 import { generateTestCases } from '../utils/api';
 import { useAppState } from '../context/AppStateContext';
 
 export default function TestCaseGenerator() {
-  const { testCaseState, setTestCaseState, questionState } = useAppState();
-  const { solutionCode, prefilledCode, questionMarkdown, numberOfTestCases, customRules, testCases, activeTab } = testCaseState;
+  const { activeProject, activeQuestion, updateQuestion } = useAppState();
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [activeTab, setActiveTab] = useState('solution');
 
-  const update = (patch) => setTestCaseState((s) => ({ ...s, ...patch }));
-  const setSolutionCode = (v) => update({ solutionCode: v });
-  const setPrefilledCode = (v) => update({ prefilledCode: v });
-  const setQuestionMarkdown = (v) => update({ questionMarkdown: v });
-  const setNumberOfTestCases = (v) => update({ numberOfTestCases: v });
-  const setCustomRules = (v) => update({ customRules: v });
-  const setTestCases = (v) => update({ testCases: v });
-  const setActiveTab = (v) => update({ activeTab: v });
+  if (!activeProject || !activeQuestion) return null;
 
-  const handleImportFromQuestionGenerator = () => {
-    const imported = [];
-    if (questionState.solutionCode?.trim()) {
-      setSolutionCode(questionState.solutionCode);
-      imported.push('Solution Code');
+  const {
+    solutionCode,
+    prefilledCode,
+    questionMd: questionMarkdown,
+    numberOfTestCases,
+    testCaseCustomRules: customRules,
+    testCasesJson,
+  } = activeQuestion;
+
+  // Parse stored test cases JSON
+  let testCases = null;
+  if (testCasesJson?.trim()) {
+    try {
+      testCases = JSON.parse(testCasesJson);
+    } catch {
+      // invalid JSON — treat as null
     }
-    if (questionState.prefilledCode?.trim()) {
-      setPrefilledCode(questionState.prefilledCode);
-      imported.push('Prefilled Code');
-    }
-    if (questionState.markdown?.trim()) {
-      setQuestionMarkdown(questionState.markdown);
-      imported.push('Question Markdown');
-    }
-    if (imported.length > 0) {
-      toast.success(`Imported: ${imported.join(', ')}`);
-    } else {
-      toast.error('Nothing to import — Question Generator fields are empty');
-    }
+  }
+
+  const set = (patch) => {
+    const idx = activeProject.activeQuestionIndex;
+    updateQuestion(idx, patch);
+  };
+
+  const setTestCases = (v) => {
+    set({ testCasesJson: v ? JSON.stringify(v, null, 2) : '' });
   };
 
   const handleGenerate = async () => {
@@ -48,16 +49,25 @@ export default function TestCaseGenerator() {
       toast.error('Solution code is required');
       return;
     }
+    // Capture index and data at click time to prevent cross-question contamination
+    const capturedIdx = activeProject.activeQuestionIndex;
+    const capturedSolutionCode = solutionCode;
+    const capturedPrefilledCode = prefilledCode;
+    const capturedQuestionMarkdown = questionMarkdown;
+    const capturedNumberOfTestCases = numberOfTestCases;
+    const capturedCustomRules = customRules;
+
     setLoading(true);
     try {
       const data = await generateTestCases({
-        solutionCode,
-        prefilledCode,
-        questionMarkdown,
-        numberOfTestCases,
-        customRules,
+        solutionCode: capturedSolutionCode,
+        prefilledCode: capturedPrefilledCode,
+        questionMarkdown: capturedQuestionMarkdown,
+        numberOfTestCases: capturedNumberOfTestCases,
+        customRules: capturedCustomRules,
       });
-      setTestCases(data.testCases);
+      const json = data.testCases ? JSON.stringify(data.testCases, null, 2) : '';
+      updateQuestion(capturedIdx, { testCasesJson: json });
       toast.success('Test cases generated!');
     } catch (err) {
       toast.error(err.message);
@@ -104,14 +114,15 @@ export default function TestCaseGenerator() {
     toast.success('Test case updated');
   };
 
-  const getFullJson = () => JSON.stringify(testCases, null, 2);
+  const getFullJson = () => testCasesJson || '';
 
   const handleDownload = () => {
+    const idx = activeProject.activeQuestionIndex + 1;
     const blob = new Blob([getFullJson()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'test-cases.json';
+    a.download = `testcases_${idx}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Downloaded!');
@@ -129,6 +140,9 @@ export default function TestCaseGenerator() {
         <h2 className="text-xl font-bold text-white">Test Case Generator</h2>
         <p className="text-sm text-gray-500 mt-0.5">Generate static code check test cases</p>
       </div>
+
+      {/* Question Selector */}
+      <QuestionSelector />
 
       {/* Input tabs */}
       <div className="bg-dark-800 border border-dark-600 rounded-lg">
@@ -148,19 +162,13 @@ export default function TestCaseGenerator() {
               </button>
             ))}
           </div>
-          <button
-            onClick={handleImportFromQuestionGenerator}
-            className="flex items-center gap-1.5 mr-3 px-3 py-1.5 border border-dark-500 hover:border-gray-400 rounded-lg text-xs font-medium text-gray-300 hover:text-white transition-colors"
-          >
-            <Import size={13} />
-            Import from Question Generator
-          </button>
+          <span className="mr-3 text-xs text-gray-600">Auto-loaded from project</span>
         </div>
         <div className="p-4">
           {activeTab === 'solution' && (
             <CodeEditor
               value={solutionCode}
-              onChange={setSolutionCode}
+              onChange={(v) => set({ solutionCode: v })}
               placeholder="Paste your solution code here..."
               height="h-48"
             />
@@ -168,7 +176,7 @@ export default function TestCaseGenerator() {
           {activeTab === 'prefilled' && (
             <CodeEditor
               value={prefilledCode}
-              onChange={setPrefilledCode}
+              onChange={(v) => set({ prefilledCode: v })}
               placeholder="Paste prefilled code here (optional)..."
               height="h-48"
             />
@@ -176,7 +184,7 @@ export default function TestCaseGenerator() {
           {activeTab === 'question' && (
             <CodeEditor
               value={questionMarkdown}
-              onChange={setQuestionMarkdown}
+              onChange={(v) => set({ questionMd: v })}
               placeholder="Paste question markdown here (optional)..."
               height="h-48"
             />
@@ -194,7 +202,7 @@ export default function TestCaseGenerator() {
               min={1}
               max={20}
               value={numberOfTestCases}
-              onChange={(e) => setNumberOfTestCases(parseInt(e.target.value) || 8)}
+              onChange={(e) => set({ numberOfTestCases: parseInt(e.target.value) || 8 })}
               className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-accent-blue transition-colors"
             />
           </div>
@@ -202,7 +210,7 @@ export default function TestCaseGenerator() {
             <label className="text-sm font-medium text-gray-300 block mb-1.5">Custom Rules</label>
             <textarea
               value={customRules}
-              onChange={(e) => setCustomRules(e.target.value)}
+              onChange={(e) => set({ testCaseCustomRules: e.target.value })}
               placeholder={'e.g. "Do NOT generate a test case for print statement"\n"Must check for specific import X"'}
               rows={3}
               className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 resize-none focus:border-accent-blue transition-colors placeholder:text-gray-600"
