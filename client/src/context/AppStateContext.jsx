@@ -271,6 +271,7 @@ export function AppStateProvider({ children }) {
       },
     ],
     generatedJson: '',
+    generatedQuestionSetsJson: '',
   });
 
   // Response Processing state (JSON Generator sub-tab 3)

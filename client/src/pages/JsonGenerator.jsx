@@ -34,6 +34,7 @@ export default function JsonGenerator() {
   // Sub-tab 1 state
   const [resourceId, setResourceId] = useState('');
   const [zipTitle, setZipTitle] = useState('');
+  const [previewTab, setPreviewTab] = useState('ide'); // 'ide' | 'sets'
 
   // Sub-tab 3 state
   const fileInputRef = useRef(null);
@@ -140,15 +141,17 @@ export default function JsonGenerator() {
       }
     }
 
-    const output = questions.map((q) => {
+    const ideCodingQuestions = questions.map((q) => {
       let testCases = [];
       if (q.testCasesJson.trim()) {
         try {
           const parsed = JSON.parse(q.testCasesJson);
           const arr = parsed.test_cases || parsed;
           testCases = (Array.isArray(arr) ? arr : []).map((tc) => ({
+            id: crypto.randomUUID(),
             display_text: tc.name || tc.display_text,
-            weightage: parseFloat(tc.weight) || 5.0,
+            weightage: parseInt(tc.weight) || 5,
+            metadata: null,
             test_case_enum: tc.test_case_enum,
           }));
         } catch {
@@ -156,20 +159,26 @@ export default function JsonGenerator() {
         }
       }
 
+      const score = testCases.reduce((sum, tc) => sum + (tc.weightage || 5), 0);
+
       return {
-        question_id: crypto.randomUUID(),
-        ide_session_id: crypto.randomUUID(),
-        short_text: q.title,
-        question_key: q.questionKey || q.title,
-        question_text: q.questionMarkdown,
-        content_type: 'MARKDOWN',
-        toughness: q.toughness || 'EASY',
-        language: q.language || 'ENGLISH',
         question_type: 'IDE_BASED_CODING',
+        question: {
+          question_id: crypto.randomUUID(),
+          content: q.questionMarkdown,
+          short_text: q.title,
+          multimedia: [],
+          language: q.language || 'ENGLISH',
+          content_type: 'MARKDOWN',
+          difficulty: q.toughness || 'EASY',
+          default_tag_names: [],
+          concept_tag_names: [],
+          metadata: null,
+        },
         question_asked_by_companies_info: [],
-        question_format: 'CODING_PRACTICE',
+        ide_session_id: crypto.randomUUID(),
         test_cases: testCases,
-        multimedia: [],
+        score,
         solutions: [
           {
             order: 1,
@@ -188,23 +197,29 @@ export default function JsonGenerator() {
       };
     });
 
-    update({ generatedJson: JSON.stringify(output, null, 2) });
-    toast.success(`Generated JSON with ${output.length} question${output.length > 1 ? 's' : ''}!`);
+    // Build question_sets_questions.json
+    const questionSetsQuestions = ideCodingQuestions.map((q, idx) => ({
+      question_set_id: resourceId.trim() || '[RESOURCE_ID]',
+      question_id: q.question.question_id,
+      order: idx + 2, // starts at 2
+    }));
+
+    update({
+      generatedJson: JSON.stringify(ideCodingQuestions, null, 2),
+      generatedQuestionSetsJson: JSON.stringify(questionSetsQuestions, null, 2),
+    });
+    toast.success(`Generated JSON with ${ideCodingQuestions.length} question${ideCodingQuestions.length > 1 ? 's' : ''}!`);
   };
 
   const handleDownloadZip = async () => {
-    if (!resourceId.trim()) {
-      toast.error('Resource ID is required');
-      return;
-    }
     if (!zipTitle.trim()) {
       toast.error('ZIP Title is required');
       return;
     }
 
     const zip = new JSZip();
-    const folder = zip.folder('IDE_BASED_CODING');
-    folder.file(`${resourceId.trim()}.json`, generatedJson);
+    zip.file('ide_based_coding_questions.json', generatedJson);
+    zip.file('question_sets_questions.json', jsonState.generatedQuestionSetsJson || '[]');
 
     const blob = await zip.generateAsync({ type: 'blob' });
     saveAs(blob, `${zipTitle.trim()}.zip`);
@@ -530,35 +545,73 @@ export default function JsonGenerator() {
           );
         })}
 
-        {/* Generate Button */}
-        <div className="flex justify-end">
-          <button
-            onClick={handleGenerate}
-            className="flex items-center gap-2 px-5 py-2.5 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium text-white transition-colors"
-          >
-            <Braces size={16} />
-            Generate JSON
-          </button>
+        {/* Resource ID + Generate */}
+        <div className="bg-dark-800 border border-dark-600 rounded-lg p-4">
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-gray-400 block mb-1">Resource ID (question_set_id)</label>
+              <input
+                value={resourceId}
+                onChange={(e) => setResourceId(e.target.value)}
+                placeholder="Enter Resource ID for question_sets_questions.json"
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:border-accent-blue transition-colors"
+              />
+            </div>
+            <button
+              onClick={handleGenerate}
+              className="flex items-center gap-2 px-5 py-2.5 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+            >
+              <Braces size={16} />
+              Generate JSON
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Right: Output */}
       <div className="flex flex-col min-h-0 bg-dark-800 border border-dark-600 rounded-lg">
         <div className="flex items-center justify-between p-3 border-b border-dark-600">
-          <span className="text-sm font-medium text-gray-300">Output JSON</span>
-          {generatedJson && (
-            <div className="flex gap-2">
-              <CopyButton text={generatedJson} />
+          {generatedJson ? (
+            <div className="flex gap-1">
+              <button
+                onClick={() => setPreviewTab('ide')}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                  previewTab === 'ide' ? 'bg-accent-blue/20 text-accent-blue' : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                ide_based_coding_questions.json
+              </button>
+              <button
+                onClick={() => setPreviewTab('sets')}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                  previewTab === 'sets' ? 'bg-accent-blue/20 text-accent-blue' : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                question_sets_questions.json
+              </button>
             </div>
+          ) : (
+            <span className="text-sm font-medium text-gray-300">Output JSON</span>
+          )}
+          {generatedJson && (
+            <CopyButton text={previewTab === 'ide' ? generatedJson : (jsonState.generatedQuestionSetsJson || '[]')} />
           )}
         </div>
         <div className="flex-1 overflow-auto p-4">
           {generatedJson ? (
-            <textarea
-              value={generatedJson}
-              onChange={(e) => update({ generatedJson: e.target.value })}
-              className="w-full h-full bg-transparent font-mono text-sm text-gray-300 resize-none outline-none"
-            />
+            previewTab === 'ide' ? (
+              <textarea
+                value={generatedJson}
+                onChange={(e) => update({ generatedJson: e.target.value })}
+                className="w-full h-full bg-transparent font-mono text-sm text-gray-300 resize-none outline-none"
+              />
+            ) : (
+              <textarea
+                value={jsonState.generatedQuestionSetsJson || '[]'}
+                onChange={(e) => update({ generatedQuestionSetsJson: e.target.value })}
+                className="w-full h-full bg-transparent font-mono text-sm text-gray-300 resize-none outline-none"
+              />
+            )
           ) : (
             <p className="text-gray-600 text-sm">Generated JSON will appear here...</p>
           )}
@@ -567,25 +620,14 @@ export default function JsonGenerator() {
         {/* Download section */}
         {generatedJson && (
           <div className="p-3 border-t border-dark-600 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-400 block mb-1">Resource ID</label>
-                <input
-                  value={resourceId}
-                  onChange={(e) => setResourceId(e.target.value)}
-                  placeholder="Enter UUID for JSON filename"
-                  className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-accent-blue transition-colors"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-400 block mb-1">ZIP Title</label>
-                <input
-                  value={zipTitle}
-                  onChange={(e) => setZipTitle(e.target.value)}
-                  placeholder="Enter name for ZIP file"
-                  className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-accent-blue transition-colors"
-                />
-              </div>
+            <div>
+              <label className="text-xs font-medium text-gray-400 block mb-1">ZIP Title</label>
+              <input
+                value={zipTitle}
+                onChange={(e) => setZipTitle(e.target.value)}
+                placeholder="Enter name for ZIP file"
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-accent-blue transition-colors"
+              />
             </div>
             <button
               onClick={handleDownloadZip}

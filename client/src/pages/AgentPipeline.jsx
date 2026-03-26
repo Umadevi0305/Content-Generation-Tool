@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Loader2, Sparkles, CheckCircle2, Circle, ChevronDown, ChevronRight,
   Play, ArrowLeft, ArrowRight, RotateCcw, Download, ExternalLink,
@@ -177,13 +177,14 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [loading, setLoading] = useState({});
   const [viewMode, setViewMode] = useState('preview');
+  const autoGenTriggered = useRef({});
 
   const q = questions[activeIdx];
   const perQ = pipeline.perQuestion[activeIdx];
 
   const allAccepted = pipeline.perQuestion.every((pq) => pq.questionMdAccepted);
 
-  const handleGenerate = async (idx) => {
+  const handleGenerate = useCallback(async (idx) => {
     const question = questions[idx];
     if (!question.solutionCode?.trim()) {
       toast.error(`Question ${idx + 1}: Solution code is required`);
@@ -203,7 +204,17 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
     } finally {
       setLoading((s) => ({ ...s, [idx]: false }));
     }
-  };
+  }, [questions, updateQuestion]);
+
+  // Auto-generate for active question when it has no content yet
+  useEffect(() => {
+    const q = questions[activeIdx];
+    const pq = pipeline.perQuestion[activeIdx];
+    if (!q.questionMd?.trim() && !loading[activeIdx] && !pq?.questionMdAccepted && !autoGenTriggered.current[activeIdx]) {
+      autoGenTriggered.current[activeIdx] = true;
+      handleGenerate(activeIdx);
+    }
+  }, [activeIdx, questions, pipeline.perQuestion, loading, handleGenerate]);
 
   const handleAccept = (idx) => {
     updatePipeline((p) => {
@@ -212,15 +223,28 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
       return { ...p, perQuestion };
     });
     toast.success(`Question ${idx + 1} MD accepted`);
+
+    // Auto-advance to next unaccepted question
+    const nextIdx = questions.findIndex((_, i) => i > idx && !pipeline.perQuestion[i]?.questionMdAccepted);
+    if (nextIdx !== -1) {
+      setActiveIdx(nextIdx);
+    }
   };
 
-  const handleProceed = () => {
-    updatePipeline((p) => ({
-      ...p,
-      currentPhase: 2,
-      phaseStatus: p.phaseStatus.map((s, i) => (i === 1 ? 'completed' : i === 2 ? 'in_progress' : s)),
-    }));
-  };
+  // Auto-proceed to next phase when all accepted
+  useEffect(() => {
+    if (allAccepted) {
+      const timer = setTimeout(() => {
+        updatePipeline((p) => ({
+          ...p,
+          currentPhase: 2,
+          phaseStatus: p.phaseStatus.map((s, i) => (i === 1 ? 'completed' : i === 2 ? 'in_progress' : s)),
+        }));
+        toast.success('All questions accepted! Moving to Phase 2...');
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [allAccepted, updatePipeline]);
 
   const getStatus = (idx) => {
     if (pipeline.perQuestion[idx]?.questionMdAccepted) return 'accepted';
@@ -232,20 +256,13 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <QuestionTabs questions={questions} activeIndex={activeIdx} onSelect={setActiveIdx} statusFn={getStatus} />
-        <button
-          onClick={() => {
-            // Generate all ungenerated questions
-            questions.forEach((_, idx) => {
-              if (!questions[idx].questionMd?.trim() && !loading[idx]) {
-                handleGenerate(idx);
-              }
-            });
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-xs font-medium text-gray-300 transition-colors"
-        >
-          <Sparkles size={14} />
-          Generate All
-        </button>
+        <div className="flex items-center gap-2">
+          {allAccepted && (
+            <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium animate-pulse">
+              <Loader2 size={12} className="animate-spin" /> Proceeding to Phase 2...
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="bg-dark-800 border border-dark-600 rounded-lg p-4 space-y-3">
@@ -258,7 +275,10 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
               </span>
             )}
             <button
-              onClick={() => handleGenerate(activeIdx)}
+              onClick={() => {
+                autoGenTriggered.current[activeIdx] = true;
+                handleGenerate(activeIdx);
+              }}
               disabled={loading[activeIdx]}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-xs text-gray-300 transition-colors"
             >
@@ -269,8 +289,9 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
         </div>
 
         {loading[activeIdx] && (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex flex-col items-center justify-center py-12 gap-2">
             <Loader2 size={32} className="animate-spin text-accent-blue" />
+            <p className="text-xs text-gray-500">Agent is generating Question {activeIdx + 1} markdown...</p>
           </div>
         )}
 
@@ -308,13 +329,13 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
             </div>
 
             {!perQ?.questionMdAccepted && (
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
                 <button
                   onClick={() => handleAccept(activeIdx)}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium text-white transition-colors"
                 >
                   <CheckCircle2 size={14} />
-                  Accept
+                  Accept & Continue
                 </button>
               </div>
             )}
@@ -323,22 +344,10 @@ function Phase1QuestionMd({ project, updateQuestion, updatePipeline }) {
 
         {!q.questionMd?.trim() && !loading[activeIdx] && (
           <p className="text-gray-600 text-sm py-8 text-center">
-            Click Generate to create question markdown from the solution code.
+            Agent will auto-generate question markdown. Click Regenerate if needed.
           </p>
         )}
       </div>
-
-      {allAccepted && (
-        <div className="flex justify-end">
-          <button
-            onClick={handleProceed}
-            className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-semibold text-white transition-colors"
-          >
-            Proceed to Phase 2
-            <ArrowRight size={16} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -350,6 +359,7 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
   const { questions, pipeline } = project;
   const [activeIdx, setActiveIdx] = useState(0);
   const [loading, setLoading] = useState({});
+  const autoGenTriggered = useRef({});
 
   const q = questions[activeIdx];
   const perQ = pipeline.perQuestion[activeIdx];
@@ -360,7 +370,7 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
     try { testCases = JSON.parse(q.testCasesJson); } catch {}
   }
 
-  const handleGenerate = async (idx) => {
+  const handleGenerate = useCallback(async (idx) => {
     const question = questions[idx];
     setLoading((s) => ({ ...s, [idx]: true }));
     try {
@@ -378,7 +388,17 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
     } finally {
       setLoading((s) => ({ ...s, [idx]: false }));
     }
-  };
+  }, [questions, updateQuestion]);
+
+  // Auto-generate for active question when it has no content yet
+  useEffect(() => {
+    const q = questions[activeIdx];
+    const pq = pipeline.perQuestion[activeIdx];
+    if (!q.testCasesJson?.trim() && !loading[activeIdx] && !pq?.testCasesAccepted && !autoGenTriggered.current[activeIdx]) {
+      autoGenTriggered.current[activeIdx] = true;
+      handleGenerate(activeIdx);
+    }
+  }, [activeIdx, questions, pipeline.perQuestion, loading, handleGenerate]);
 
   const handleAccept = (idx) => {
     updatePipeline((p) => {
@@ -387,20 +407,33 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
       return { ...p, perQuestion };
     });
     toast.success(`Q${idx + 1} test cases accepted`);
+
+    // Auto-advance to next unaccepted question
+    const nextIdx = questions.findIndex((_, i) => i > idx && !pipeline.perQuestion[i]?.testCasesAccepted);
+    if (nextIdx !== -1) {
+      setActiveIdx(nextIdx);
+    }
   };
+
+  // Auto-proceed to next phase when all accepted
+  useEffect(() => {
+    if (allAccepted) {
+      const timer = setTimeout(() => {
+        updatePipeline((p) => ({
+          ...p,
+          currentPhase: 3,
+          phaseStatus: p.phaseStatus.map((s, i) => (i === 2 ? 'completed' : i === 3 ? 'in_progress' : s)),
+        }));
+        toast.success('All test cases accepted! Moving to Phase 3...');
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [allAccepted, updatePipeline]);
 
   const handleDeleteTestCase = (tcId) => {
     if (!testCases) return;
     const updated = { ...testCases, test_cases: testCases.test_cases.filter((tc) => tc.id !== tcId) };
     updateQuestion(activeIdx, { testCasesJson: JSON.stringify(updated, null, 2) });
-  };
-
-  const handleProceed = () => {
-    updatePipeline((p) => ({
-      ...p,
-      currentPhase: 3,
-      phaseStatus: p.phaseStatus.map((s, i) => (i === 2 ? 'completed' : i === 3 ? 'in_progress' : s)),
-    }));
   };
 
   const getStatus = (idx) => {
@@ -413,17 +446,13 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <QuestionTabs questions={questions} activeIndex={activeIdx} onSelect={setActiveIdx} statusFn={getStatus} />
-        <button
-          onClick={() => {
-            questions.forEach((_, idx) => {
-              if (!questions[idx].testCasesJson?.trim() && !loading[idx]) handleGenerate(idx);
-            });
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-xs font-medium text-gray-300 transition-colors"
-        >
-          <Sparkles size={14} />
-          Generate All
-        </button>
+        <div className="flex items-center gap-2">
+          {allAccepted && (
+            <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium animate-pulse">
+              <Loader2 size={12} className="animate-spin" /> Proceeding to Phase 3...
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="bg-dark-800 border border-dark-600 rounded-lg p-4 space-y-3">
@@ -436,7 +465,10 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
               </span>
             )}
             <button
-              onClick={() => handleGenerate(activeIdx)}
+              onClick={() => {
+                autoGenTriggered.current[activeIdx] = true;
+                handleGenerate(activeIdx);
+              }}
               disabled={loading[activeIdx]}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-xs text-gray-300 transition-colors"
             >
@@ -447,8 +479,9 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
         </div>
 
         {loading[activeIdx] && (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex flex-col items-center justify-center py-12 gap-2">
             <Loader2 size={32} className="animate-spin text-accent-blue" />
+            <p className="text-xs text-gray-500">Agent is generating test cases for Question {activeIdx + 1}...</p>
           </div>
         )}
 
@@ -488,7 +521,7 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium text-white transition-colors"
                 >
                   <CheckCircle2 size={14} />
-                  Accept
+                  Accept & Continue
                 </button>
               </div>
             )}
@@ -497,22 +530,10 @@ function Phase2TestCases({ project, updateQuestion, updatePipeline }) {
 
         {!testCases && !loading[activeIdx] && (
           <p className="text-gray-600 text-sm py-8 text-center">
-            Click Generate to create test cases from the solution code and question MD.
+            Agent will auto-generate test cases. Click Regenerate if needed.
           </p>
         )}
       </div>
-
-      {allAccepted && (
-        <div className="flex justify-end">
-          <button
-            onClick={handleProceed}
-            className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-semibold text-white transition-colors"
-          >
-            Proceed to Phase 3
-            <ArrowRight size={16} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -526,11 +547,12 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
   const [loading, setLoading] = useState({});
   const [results, setResults] = useState({}); // idx -> variants[]
   const [expandedV, setExpandedV] = useState({});
+  const autoGenTriggered = useRef({});
 
   const perQ = pipeline.perQuestion[activeIdx];
   const allAccepted = pipeline.perQuestion.every((pq) => pq.evaluationAccepted);
 
-  const handleEvaluate = async (idx) => {
+  const handleEvaluate = useCallback(async (idx) => {
     const q = questions[idx];
     let parsedTc;
     try {
@@ -557,7 +579,16 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
     } finally {
       setLoading((s) => ({ ...s, [idx]: false }));
     }
-  };
+  }, [questions]);
+
+  // Auto-evaluate for active question when it has no results yet
+  useEffect(() => {
+    const pq = pipeline.perQuestion[activeIdx];
+    if (!results[activeIdx]?.length && !loading[activeIdx] && !pq?.evaluationAccepted && !autoGenTriggered.current[activeIdx]) {
+      autoGenTriggered.current[activeIdx] = true;
+      handleEvaluate(activeIdx);
+    }
+  }, [activeIdx, results, pipeline.perQuestion, loading, handleEvaluate]);
 
   const handleAccept = (idx) => {
     updatePipeline((p) => {
@@ -566,7 +597,28 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
       return { ...p, perQuestion };
     });
     toast.success(`Q${idx + 1} evaluation accepted`);
+
+    // Auto-advance to next unaccepted question
+    const nextIdx = questions.findIndex((_, i) => i > idx && !pipeline.perQuestion[i]?.evaluationAccepted);
+    if (nextIdx !== -1) {
+      setActiveIdx(nextIdx);
+    }
   };
+
+  // Auto-proceed to next phase when all accepted
+  useEffect(() => {
+    if (allAccepted) {
+      const timer = setTimeout(() => {
+        updatePipeline((p) => ({
+          ...p,
+          currentPhase: 4,
+          phaseStatus: p.phaseStatus.map((s, i) => (i === 3 ? 'completed' : i === 4 ? 'in_progress' : s)),
+        }));
+        toast.success('All evaluations accepted! Moving to Phase 4...');
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [allAccepted, updatePipeline]);
 
   const handleBackToPhase2 = () => {
     updatePipeline((p) => ({
@@ -574,14 +626,6 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
       currentPhase: 2,
       phaseStatus: p.phaseStatus.map((s, i) => (i === 2 ? 'in_progress' : i === 3 ? 'not_started' : s)),
       perQuestion: p.perQuestion.map((pq) => ({ ...pq, testCasesAccepted: false, evaluationAccepted: false })),
-    }));
-  };
-
-  const handleProceed = () => {
-    updatePipeline((p) => ({
-      ...p,
-      currentPhase: 4,
-      phaseStatus: p.phaseStatus.map((s, i) => (i === 3 ? 'completed' : i === 4 ? 'in_progress' : s)),
     }));
   };
 
@@ -597,13 +641,20 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <QuestionTabs questions={questions} activeIndex={activeIdx} onSelect={setActiveIdx} statusFn={getStatus} />
-        <button
-          onClick={handleBackToPhase2}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-xs text-gray-300 transition-colors"
-        >
-          <ArrowLeft size={12} />
-          Back to Phase 2
-        </button>
+        <div className="flex items-center gap-2">
+          {allAccepted && (
+            <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium animate-pulse">
+              <Loader2 size={12} className="animate-spin" /> Proceeding to Phase 4...
+            </span>
+          )}
+          <button
+            onClick={handleBackToPhase2}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-xs text-gray-300 transition-colors"
+          >
+            <ArrowLeft size={12} />
+            Back to Phase 2
+          </button>
+        </div>
       </div>
 
       <div className="bg-dark-800 border border-dark-600 rounded-lg p-4 space-y-3">
@@ -616,7 +667,10 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
               </span>
             )}
             <button
-              onClick={() => handleEvaluate(activeIdx)}
+              onClick={() => {
+                autoGenTriggered.current[activeIdx] = true;
+                handleEvaluate(activeIdx);
+              }}
               disabled={loading[activeIdx]}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue hover:bg-blue-600 disabled:opacity-50 rounded-lg text-xs text-white transition-colors"
             >
@@ -629,7 +683,7 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
         {loading[activeIdx] && (
           <div className="flex flex-col items-center justify-center py-12 gap-2">
             <Loader2 size={32} className="animate-spin text-accent-blue" />
-            <p className="text-xs text-gray-500">Generating student variants and evaluating...</p>
+            <p className="text-xs text-gray-500">Agent is evaluating Question {activeIdx + 1} with student variants...</p>
           </div>
         )}
 
@@ -711,7 +765,7 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium text-white transition-colors"
                 >
                   <CheckCircle2 size={14} />
-                  Accept
+                  Accept & Continue
                 </button>
               </div>
             )}
@@ -720,22 +774,10 @@ function Phase3Evaluation({ project, updateQuestion, updatePipeline }) {
 
         {variants.length === 0 && !loading[activeIdx] && (
           <p className="text-gray-600 text-sm py-8 text-center">
-            Click Evaluate to generate student variants and test them against the accepted test cases.
+            Agent will auto-evaluate with student variants. Click Re-Evaluate if needed.
           </p>
         )}
       </div>
-
-      {allAccepted && (
-        <div className="flex justify-end">
-          <button
-            onClick={handleProceed}
-            className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-semibold text-white transition-colors"
-          >
-            Proceed to Phase 4
-            <ArrowRight size={16} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -764,8 +806,10 @@ function Phase4Json({ project, updatePipeline }) {
           const parsed = JSON.parse(q.testCasesJson);
           const arr = parsed.test_cases || parsed;
           testCases = (Array.isArray(arr) ? arr : []).map((tc) => ({
+            id: crypto.randomUUID(),
             display_text: tc.name || tc.display_text,
-            weightage: parseFloat(tc.weight) || 5.0,
+            weightage: parseInt(tc.weight) || 5,
+            metadata: null,
             test_case_enum: tc.test_case_enum,
           }));
         } catch {}
@@ -775,21 +819,26 @@ function Phase4Json({ project, updatePipeline }) {
       const headingMatch = q.questionMd?.match(/^#+\s+(.+)/m);
       const autoTitle = headingMatch ? headingMatch[1].trim() : `Question ${idx + 1}`;
       const title = meta.title?.trim() || autoTitle;
+      const score = Number(testCases.reduce((sum, tc) => sum + (tc.weightage || 5), 0));
 
       return {
-        question_id: crypto.randomUUID(),
-        ide_session_id: crypto.randomUUID(),
-        short_text: title,
-        question_key: meta.questionKey?.trim() || title,
-        question_text: q.questionMd,
-        content_type: 'MARKDOWN',
-        toughness: meta.toughness || 'EASY',
-        language: meta.language || 'ENGLISH',
         question_type: 'IDE_BASED_CODING',
+        question: {
+          question_id: crypto.randomUUID(),
+          content: q.questionMd,
+          short_text: title,
+          multimedia: [],
+          language: meta.language || 'ENGLISH',
+          content_type: 'MARKDOWN',
+          difficulty: meta.toughness || 'EASY',
+          default_tag_names: [],
+          concept_tag_names: [],
+          metadata: null,
+        },
         question_asked_by_companies_info: [],
-        question_format: 'CODING_PRACTICE',
+        ide_session_id: crypto.randomUUID(),
         test_cases: testCases,
-        multimedia: [],
+        score,
         solutions: [
           {
             order: 1,
@@ -968,8 +1017,17 @@ function Phase5Zip({ project, updatePipeline }) {
     if (!pipeline.generatedJson) { toast.error('No JSON generated'); return; }
 
     const zip = new JSZip();
-    const folder = zip.folder('IDE_BASED_CODING');
-    folder.file(`${resourceId.trim()}.json`, pipeline.generatedJson);
+    zip.file('ide_based_coding_questions.json', pipeline.generatedJson);
+
+    // Build question_sets_questions.json
+    const parsed = JSON.parse(pipeline.generatedJson);
+    const questionSetsQuestions = parsed.map((q, idx) => ({
+      question_set_id: resourceId.trim(),
+      question_id: q.question.question_id,
+      order: idx + 2,
+    }));
+    zip.file('question_sets_questions.json', JSON.stringify(questionSetsQuestions, null, 2));
+
     const blob = await zip.generateAsync({ type: 'blob' });
     saveAs(blob, `${zipTitle.trim()}.zip`);
     toast.success('JSON ZIP downloaded!');

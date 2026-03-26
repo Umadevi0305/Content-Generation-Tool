@@ -7,7 +7,7 @@ import TestCaseGenerator from './pages/TestCaseGenerator';
 import JsonGenerator from './pages/JsonGenerator';
 import TestCaseEvaluator from './pages/TestCaseEvaluator';
 import ZipGenerator from './pages/ZipGenerator';
-import SessionDisplayIdGenerator from './pages/SessionDisplayIdGenerator';
+import SheetGenerator from './pages/SheetGenerator';
 import AgentPipeline from './pages/AgentPipeline';
 import { AppStateProvider, useAppState } from './context/AppStateContext';
 
@@ -40,7 +40,7 @@ function AppRoutes() {
         <Route path="/evaluator" element={<TestCaseEvaluator />} />
         <Route path="/json" element={<JsonGenerator />} />
         <Route path="/zip" element={<ZipGenerator />} />
-        <Route path="/session-ids" element={<SessionDisplayIdGenerator />} />
+        <Route path="/sheet" element={<SheetGenerator />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>

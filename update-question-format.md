@@ -5,7 +5,7 @@ Update the Question Generator's Claude API prompt template to use this EXACT for
 ```markdown
 # [Title]
 
-In this project, let's build a <b>[Title]</b> using Python that utilizes <b>[Framework/Library]</b> to [what it helps users do — describe from the user's perspective, NOT student's perspective].
+In this project, let's build a <b>[Title]</b> using <b>[Framework/Library]</b> to [what it helps users do — describe from the user's perspective, NOT student's perspective].
 
 ### Set Up Instructions
 

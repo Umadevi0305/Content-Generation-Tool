@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FileText, TestTube, ShieldCheck, Braces, Archive, Hash, LayoutDashboard, LogOut, Zap } from 'lucide-react';
+import { FileText, TestTube, ShieldCheck, Braces, Archive, FileSpreadsheet, LayoutDashboard, LogOut, Zap } from 'lucide-react';
 import { useAppState } from '../context/AppStateContext';
 
 const navItems = [
@@ -9,7 +9,7 @@ const navItems = [
   { to: '/evaluator', icon: ShieldCheck, label: 'Test Case Evaluator' },
   { to: '/json', icon: Braces, label: 'JSON Generator' },
   { to: '/zip', icon: Archive, label: 'ZIP Generator' },
-  { to: '/session-ids', icon: Hash, label: 'Session Display ID Generator' },
+  { to: '/sheet', icon: FileSpreadsheet, label: 'Sheet Generator' },
 ];
 
 export default function Sidebar() {

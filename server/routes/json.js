@@ -9,7 +9,6 @@ router.post('/generate', (req, res) => {
       questionMarkdown,
       testCases,
       title,
-      questionKey,
       toughness,
       language,
       solutionTitle,
@@ -20,27 +19,35 @@ router.post('/generate', (req, res) => {
       return res.status(400).json({ error: 'Question markdown and title are required' });
     }
 
-    const simplifiedTestCases = (testCases || []).map((tc) => ({
+    const formattedTestCases = (testCases || []).map((tc) => ({
+      id: uuidv4(),
       display_text: tc.name || tc.display_text,
-      weightage: 5.0,
+      weightage: 5,
+      metadata: null,
       test_case_enum: tc.test_case_enum,
     }));
 
+    const score = formattedTestCases.length * 5;
+
     const questionJson = [
       {
-        question_id: uuidv4(),
-        ide_session_id: uuidv4(),
-        short_text: title,
-        question_key: questionKey || title,
-        question_text: questionMarkdown,
-        content_type: 'MARKDOWN',
-        toughness: toughness || 'EASY',
-        language: language || 'ENGLISH',
         question_type: 'IDE_BASED_CODING',
+        question: {
+          question_id: uuidv4(),
+          content: questionMarkdown,
+          short_text: title,
+          multimedia: [],
+          language: language || 'ENGLISH',
+          content_type: 'MARKDOWN',
+          difficulty: toughness || 'EASY',
+          default_tag_names: [],
+          concept_tag_names: [],
+          metadata: null,
+        },
         question_asked_by_companies_info: [],
-        question_format: 'CODING_PRACTICE',
-        test_cases: simplifiedTestCases,
-        multimedia: [],
+        ide_session_id: uuidv4(),
+        test_cases: formattedTestCases,
+        score,
         solutions: [
           {
             order: 1,
@@ -49,7 +56,7 @@ router.post('/generate', (req, res) => {
               content_type: 'MARKDOWN',
             },
             description: {
-              content: solutionDescription || '',
+              content: solutionDescription || `An approach to build the ${title}`,
               content_type: 'MARKDOWN',
             },
             ide_session_id: uuidv4(),
