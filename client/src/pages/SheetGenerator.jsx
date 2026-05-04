@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { FileSpreadsheet, Download, Loader2, Eye } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { FileSpreadsheet, Download, Loader2, Eye, Upload, X, ChevronDown, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import JSZip from 'jszip';
 import toast from 'react-hot-toast';
 import { useAppState } from '../context/AppStateContext';
 
@@ -317,16 +318,96 @@ export default function SheetGenerator() {
   const [generating, setGenerating] = useState(false);
   const [activeSheet, setActiveSheet] = useState('ide');
 
+  // Source mode: 'pipeline' or 'zip'
+  const [sourceMode, setSourceMode] = useState('pipeline');
+
+  // ZIP upload state
+  const [zipFile, setZipFile] = useState(null);
+  const [zipQuestions, setZipQuestions] = useState([]); // parsed from ide_based_coding_questions.json
+  const [zipQuestionExtras, setZipQuestionExtras] = useState([]); // per-question { testCasesJson, solutionCode }
+  const [zipLoading, setZipLoading] = useState(false);
+  const [expandedZipSections, setExpandedZipSections] = useState({});
+  const [dragOver, setDragOver] = useState(false);
+  const zipInputRef = useRef(null);
+
   if (!activeProject) return null;
 
   const { questions, pipeline } = activeProject;
   const generatedJson = pipeline?.generatedJson;
-  const questionJsonArray = parseGeneratedJson(generatedJson);
+  const pipelineJsonArray = parseGeneratedJson(generatedJson);
+
+  // Use pipeline or ZIP data depending on mode
+  const questionJsonArray = sourceMode === 'pipeline' ? pipelineJsonArray : zipQuestions;
+  const questionsSource = sourceMode === 'pipeline' ? questions : zipQuestionExtras;
 
   const requiredIdCount = questionJsonArray.length * 2;
   const parsedDisplayIds = sessionDisplayIds.split('\n').map(s => s.trim()).filter(Boolean);
   const hasEnoughIds = parsedDisplayIds.length >= requiredIdCount;
   const canGenerate = resourceId.trim() && questionJsonArray.length > 0 && hasEnoughIds;
+
+  // ZIP upload handlers
+  const handleZipUpload = useCallback(async (file) => {
+    if (!file || !file.name.endsWith('.zip')) {
+      toast.error('Please upload a .zip file');
+      return;
+    }
+    setZipLoading(true);
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const jsonFile = zip.file('ide_based_coding_questions.json');
+      if (!jsonFile) {
+        toast.error('ZIP must contain ide_based_coding_questions.json');
+        setZipLoading(false);
+        return;
+      }
+      const jsonContent = await jsonFile.async('string');
+      const parsed = JSON.parse(jsonContent);
+      const arr = Array.isArray(parsed) ? parsed : [parsed];
+      if (arr.length === 0) {
+        toast.error('No questions found in ide_based_coding_questions.json');
+        setZipLoading(false);
+        return;
+      }
+      setZipFile(file);
+      setZipQuestions(arr);
+      setZipQuestionExtras(arr.map(() => ({ testCasesJson: '', solutionCode: '' })));
+      setExpandedZipSections({ 0: true });
+      setSheetData(null);
+      toast.success(`Loaded ${arr.length} question${arr.length !== 1 ? 's' : ''} from ZIP`);
+    } catch (err) {
+      toast.error(`Failed to parse ZIP: ${err.message}`);
+    } finally {
+      setZipLoading(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleZipUpload(file);
+  }, [handleZipUpload]);
+
+  const handleZipFileInput = (e) => {
+    const file = e.target.files?.[0];
+    if (file) handleZipUpload(file);
+    if (zipInputRef.current) zipInputRef.current.value = '';
+  };
+
+  const updateZipQuestionExtra = (idx, patch) => {
+    setZipQuestionExtras(prev => {
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], ...patch };
+      return updated;
+    });
+  };
+
+  const clearZipData = () => {
+    setZipFile(null);
+    setZipQuestions([]);
+    setZipQuestionExtras([]);
+    setSheetData(null);
+  };
 
   const handleGenerate = () => {
     if (!resourceId.trim() || questionJsonArray.length === 0) {
@@ -344,7 +425,7 @@ export default function SheetGenerator() {
       // ─── Build ide_sessions rows ───
       const ideSessionRows = [];
       questionJsonArray.forEach((qJson, idx) => {
-        const q = questions[idx];
+        const q = questionsSource[idx];
         const title = (qJson.question?.short_text || qJson.short_text || '').replace(/\s+/g, '');
         const questionId = qJson.question?.question_id || qJson.question_id;
 
@@ -406,7 +487,7 @@ export default function SheetGenerator() {
       const promptConfigRows = [];
       const promptConfigIds = []; // one per question
       questionJsonArray.forEach((qJson, idx) => {
-        const q = questions[idx];
+        const q = questionsSource[idx];
         const testCases = getTestCasesFromQuestion(q);
         const generatedTestCases = qJson.test_cases || [];
         const testCasesForPrompt = buildTestCasesForPrompt(testCases, generatedTestCases);
@@ -459,7 +540,7 @@ export default function SheetGenerator() {
       // ─── Build AIEvaluationDetails rows ───
       const aiEvalRows = [];
       questionJsonArray.forEach((qJson, idx) => {
-        const q = questions[idx];
+        const q = questionsSource[idx];
         aiEvalRows.push({
           question_id: qJson.question?.question_id || qJson.question_id,
           answer: q.solutionCode || '',
@@ -516,13 +597,129 @@ export default function SheetGenerator() {
         </p>
       </div>
 
-      {/* Status check */}
-      {questionJsonArray.length === 0 && (
+      {/* Source mode toggle */}
+      <div className="flex gap-1 bg-dark-900 border border-dark-600 rounded-lg p-1 w-fit">
+        {[
+          { key: 'pipeline', label: 'From Pipeline' },
+          { key: 'zip', label: 'From ZIP Upload' },
+        ].map((mode) => (
+          <button
+            key={mode.key}
+            onClick={() => { setSourceMode(mode.key); setSheetData(null); }}
+            className={`px-4 py-2 text-xs font-medium rounded-md transition-colors ${
+              sourceMode === mode.key
+                ? 'bg-accent-blue text-white'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Pipeline mode: status check */}
+      {sourceMode === 'pipeline' && questionJsonArray.length === 0 && (
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
           <p className="text-sm text-yellow-400">
             No generated JSON found. Complete the pipeline through Phase 4 (JSON Generation) first, or generate JSON via the JSON Generator page.
           </p>
         </div>
+      )}
+
+      {/* ZIP upload mode */}
+      {sourceMode === 'zip' && (
+        <>
+          {/* ZIP upload area */}
+          {!zipFile ? (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => zipInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                dragOver ? 'border-accent-blue bg-accent-blue/5' : 'border-dark-600 hover:border-gray-500'
+              }`}
+            >
+              <input
+                ref={zipInputRef}
+                type="file"
+                accept=".zip"
+                onChange={handleZipFileInput}
+                className="hidden"
+              />
+              {zipLoading ? (
+                <Loader2 size={24} className="animate-spin text-accent-blue mx-auto" />
+              ) : (
+                <>
+                  <Upload size={24} className="text-gray-500 mx-auto mb-2" />
+                  <p className="text-sm text-gray-400">
+                    Drop a question ZIP here or click to browse
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    ZIP must contain <span className="font-mono text-gray-500">ide_based_coding_questions.json</span>
+                  </p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="bg-dark-800 border border-dark-600 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet size={16} className="text-accent-blue" />
+                  <span className="text-sm text-gray-200 font-medium">{zipFile.name}</span>
+                  <span className="text-xs text-gray-500">({zipQuestions.length} question{zipQuestions.length !== 1 ? 's' : ''})</span>
+                </div>
+                <button onClick={clearZipData} className="text-gray-500 hover:text-red-400 transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Per-question test cases & solution code */}
+              <div className="space-y-2">
+                {zipQuestions.map((qJson, idx) => {
+                  const title = qJson.question?.short_text || qJson.short_text || `Question ${idx + 1}`;
+                  const isExpanded = expandedZipSections[idx];
+                  const extra = zipQuestionExtras[idx] || {};
+                  return (
+                    <div key={idx} className="bg-dark-900 border border-dark-600 rounded-lg">
+                      <button
+                        onClick={() => setExpandedZipSections(s => ({ ...s, [idx]: !s[idx] }))}
+                        className="w-full flex items-center justify-between px-3 py-2.5 text-left"
+                      >
+                        <span className="text-xs font-semibold text-gray-200">Q{idx + 1}: {title}</span>
+                        {isExpanded ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 space-y-3 border-t border-dark-600 pt-3">
+                          <div>
+                            <label className="text-xs font-medium text-gray-400 block mb-1">Test Cases JSON</label>
+                            <textarea
+                              value={extra.testCasesJson || ''}
+                              onChange={(e) => updateZipQuestionExtra(idx, { testCasesJson: e.target.value })}
+                              placeholder='Paste full test cases JSON (e.g. {"test_cases": [...]})'
+                              rows={4}
+                              className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:border-accent-blue transition-colors"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-gray-400 block mb-1">Solution Code</label>
+                            <textarea
+                              value={extra.solutionCode || ''}
+                              onChange={(e) => updateZipQuestionExtra(idx, { solutionCode: e.target.value })}
+                              placeholder="Paste solution code (app.py content)"
+                              rows={4}
+                              className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:border-accent-blue transition-colors"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Top-level inputs */}
@@ -583,8 +780,8 @@ export default function SheetGenerator() {
         </div>
       </div>
 
-      {/* Auto-import summary */}
-      {questionJsonArray.length > 0 && (
+      {/* Auto-import summary (pipeline mode only) */}
+      {sourceMode === 'pipeline' && questionJsonArray.length > 0 && (
         <div className="bg-dark-800 border border-dark-600 rounded-lg p-4 space-y-2">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <Eye size={14} />
@@ -592,7 +789,7 @@ export default function SheetGenerator() {
           </h3>
           <div className="space-y-2">
             {questionJsonArray.map((qJson, idx) => {
-              const q = questions[idx];
+              const q = questionsSource[idx];
               const testCases = getTestCasesFromQuestion(q);
               return (
                 <div key={idx} className="bg-dark-900 border border-dark-600 rounded-lg p-3">

@@ -1,53 +1,48 @@
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'anthropic/claude-sonnet-4';
+const MODEL = 'gemini-2.0-flash';
+
+function getGeminiUrl() {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+}
 
 export async function generateWithClaude(systemPrompt, userPrompt) {
-  const response = await fetch(OPENROUTER_BASE, {
+  const response = await fetch(getGeminiUrl(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
     },
     body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      max_tokens: 65536,
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { maxOutputTokens: 65536 },
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`OpenRouter API error ${response.status}: ${errorText}`);
+    throw new Error(`Gemini API error ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 export async function generateWithClaudeUserOnly(userPrompt) {
-  const response = await fetch(OPENROUTER_BASE, {
+  const response = await fetch(getGeminiUrl(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
     },
     body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: 'user', content: userPrompt },
-      ],
-      max_tokens: 65536,
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { maxOutputTokens: 65536 },
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`OpenRouter API error ${response.status}: ${errorText}`);
+    throw new Error(`Gemini API error ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
